@@ -268,7 +268,7 @@ class Ropper(object):
         gadgets = []
         for section in binary.executableSections:
             vaddr = binary.imageBase
-	    print section
+	    #print section
             if self.__callback:
                 self.__callback(section, None, 0)
 
