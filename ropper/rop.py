@@ -30,6 +30,7 @@ import struct
 import sys
 import capstone
 
+
 # Optional keystone support
 try:
     import keystone
@@ -267,7 +268,7 @@ class Ropper(object):
         gadgets = []
         for section in binary.executableSections:
             vaddr = binary.imageBase
-
+	    print section
             if self.__callback:
                 self.__callback(section, None, 0)
 
@@ -361,7 +362,6 @@ class Ropper(object):
             processes[cpu].start()
 
         
-        
         count = 0
         ending_count = 0
         if self.__callback:
@@ -374,7 +374,6 @@ class Ropper(object):
                 ending_count += 1
                 if self.__callback:
                     self.__callback(section, to_return, float(ending_count) / len(arch.endings[gtype]))
-            
         return to_return
 
     def __gatherGadgetsByEndings(self,code, arch, fileName, sectionName, offset, ending_queue, gadget_queue, instruction_count):
@@ -387,7 +386,6 @@ class Ropper(object):
                 break
             
             gadgets = self.__gatherGadgetsByEnding(code, arch, fileName, sectionName, offset, ending, instruction_count)
-            
             gadget_queue.put(gadgets)
             ending_queue.task_done()
             
@@ -407,13 +405,14 @@ class Ropper(object):
         while match:
             offset_tmp += match.start()
             index = match.start()
-
+	    #print arch.align;exit(0)
             if offset_tmp % arch.align == 0:
                 #for x in range(arch.align, (depth + 1) * arch.align, arch.align): # This can be used if you want to use a bytecount instead of an instruction count per gadget
                 none_count = 0
 
                 for x in range(0, index+1, arch.align):
                     code_part = tmp_code[index - x:index + ending[1]]
+		    #print offset + offset_tmp - x
                     gadget, leng = self.__createGadget(arch, code_part, offset + offset_tmp - x , ending, fileName, sectionName)
                     if gadget:
                         if leng > instruction_count:
@@ -429,32 +428,67 @@ class Ropper(object):
             tmp_code = tmp_code[index+arch.align:]
             offset_tmp += arch.align
 
-            match = re.search(ending[0], tmp_code)
-
+            match = re.search(ending[0], tmp_code)   
         return to_return
 
-    def __createGadget(self, arch, code_str, codeStartAddress, ending, binary=None, section=None):
+    def __createGadget(self, arch, code_str, codeStartAddress, ending, binary=None, section=None, isDispatcher=0):#add para is Dispatcher
         gadget = Gadget(binary, section, arch)
         hasret = False
 
         disassembler = self.__getCs(arch)
 
+	#add
+	disassembler.detail = True
+	r_write = []
+	r_read = []
+	#end
+
         for i in disassembler.disasm(code_str, codeStartAddress):
-            if re.match(ending[0], i.bytes):
+            if re.match(ending[0], i.bytes):#ending[0] = 0xff
                 hasret = True
             
-            if hasret or i.mnemonic not in arch.badInstructions:
+            if hasret or i.mnemonic not in arch.badInstructions:#end with jmp
+
+		#add
+		pattern = r'^(e)?([a-d])[h|l|x]$'
+		r_read = []#last ins read
+		(regs_read, regs_write) = i.regs_access()
+		if len(regs_read) > 0:
+            	    for r in regs_read:
+			if i.reg_name(r) == u'esp':
+			    continue
+			if i.reg_name(r) == u'rsp':
+			    continue
+                	r_read.append(re.sub(pattern, lambda m: 'r' + m.group(2) + 'x', i.reg_name(r)))#fix x86_64
+        	if len(regs_write) > 0:
+            	    for r in regs_write:
+			
+                	r_write.append(re.sub(pattern, lambda m: 'r' + m.group(2) + 'x', i.reg_name(r)))#fix x86_64
+		#end
+
                 gadget.append(
                     i.address, i.mnemonic,i.op_str, bytes=i.bytes)
 
             if hasret or i.mnemonic in arch.badInstructions:
                 break
 
+	#add
+	if len(gadget) >1 and hasret:
+	    for i in r_read:
+		#print i, r_write, gadget
+                if i in r_write:
+		    print "dispather found!: ",
+		    print gadget
+	#end
 
-
+	#modify before jmp
+	
         leng = len(gadget)
         if hasret and leng > 0:
-            return gadget,leng
+	    if isDispatcher:#
+		return gadget,leng,r_read,r_write
+	    else:
+                return gadget,leng
         return None, -1
 
 
