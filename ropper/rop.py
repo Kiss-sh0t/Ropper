@@ -364,7 +364,7 @@ class Ropper(object):
             processes[cpu].daemon=True
             processes[cpu].start()
 
-	print dispatch_queue
+	#print dispatch_queue
 
         count = 0
         ending_count = 0
@@ -390,7 +390,15 @@ class Ropper(object):
             if dispatcher:
                 gadgets, bak = self.__gatherGadgetsByEnding(code, arch, fileName, sectionName, offset, ending, instruction_count, dispatcher)#ADD DISPATHCER	
 		#for i in bak:
-		dispatch_queue.append(bak)
+		#    print i
+                #print "=========="
+		#if bak:
+		#    print ''
+		#    print gadgets[-1]
+		#    print 'and dispatch is'
+		#    print bak[0]
+		#dispatch_queue.append(bak)
+	
 	    else:
 		gadgets = self.__gatherGadgetsByEnding(code, arch, fileName, sectionName, offset, ending, instruction_count)#origin
             gadget_queue.put(gadgets)
@@ -409,11 +417,15 @@ class Ropper(object):
         to_return = []
 	to_dispatch = []
         match = re.search(ending[0], tmp_code)
+	
 
         while match:
             offset_tmp += match.start()
             index = match.start()
 	    #print arch.align;exit(0)
+	    #add
+	    bakes = []
+
             if offset_tmp % arch.align == 0:
                 #for x in range(arch.align, (depth + 1) * arch.align, arch.align): # This can be used if you want to use a bytecount instead of an instruction count per gadget
                 none_count = 0
@@ -425,6 +437,7 @@ class Ropper(object):
                         gadget, leng, bak  = self.__createGadget(arch, code_part, offset + offset_tmp - x , ending, fileName, sectionName, 1)#to find Gadget
 			#add
 		        if bak:
+			    bakes.append(bak)
 			    to_dispatch.append(bak)
 		        #end
 		    else:
@@ -439,7 +452,12 @@ class Ropper(object):
                         none_count += 1
                         if none_count == arch.maxInvalid:
                             break
-			
+	    #add
+	    if bakes:
+		print "dispatch"	    
+		print bakes[0]
+		print "========"
+	    #end	
             tmp_code = tmp_code[index+arch.align:]
             offset_tmp += arch.align
 
