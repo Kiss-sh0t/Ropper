@@ -268,7 +268,7 @@ class Ropper(object):
         gadgets = []
         for section in binary.executableSections:
             vaddr = binary.imageBase
-	    #print section
+	    print section
             if self.__callback:
                 self.__callback(section, None, 0)
 
@@ -357,7 +357,7 @@ class Ropper(object):
             ending_queue.put(None)
 
         for cpu in range(process_count):
-            processes.append(Process(target=self.__gatherGadgetsByEndings, args=(tmp_code, arch, binary.fileName, section.name, section.offset, ending_queue, gadget_queue, instruction_count), name="GadgetSearch%d"%cpu))
+            processes.append(Process(target=self.__gatherGadgetsByEndings, args=(tmp_code, arch, binary.fileName, section.name, section.offset, ending_queue, gadget_queue, instruction_count,1), name="GadgetSearch%d"%cpu))
             processes[cpu].daemon=True
             processes[cpu].start()
 
@@ -376,7 +376,7 @@ class Ropper(object):
                     self.__callback(section, to_return, float(ending_count) / len(arch.endings[gtype]))
         return to_return
 
-    def __gatherGadgetsByEndings(self,code, arch, fileName, sectionName, offset, ending_queue, gadget_queue, instruction_count):
+    def __gatherGadgetsByEndings(self,code, arch, fileName, sectionName, offset, ending_queue, gadget_queue, instruction_count, dispatcher=None):
         
         #try:
         while True:
@@ -384,8 +384,10 @@ class Ropper(object):
             if ending is None:
                 ending_queue.task_done()
                 break
-            
-            gadgets = self.__gatherGadgetsByEnding(code, arch, fileName, sectionName, offset, ending, instruction_count)
+            if dispatcher:
+                gadgets, bak = self.__gatherGadgetsByEnding(code, arch, fileName, sectionName, offset, ending, instruction_count, dispatcher)#ADD DISPATHCER
+	    else:
+		gadgets = self.__gatherGadgetsByEnding(code, arch, fileName, sectionName, offset, ending, instruction_count)#origin
             gadget_queue.put(gadgets)
             ending_queue.task_done()
             
@@ -394,12 +396,13 @@ class Ropper(object):
         #    raise RopperError(e)
         
 
-    def __gatherGadgetsByEnding(self, code, arch, fileName, sectionName, offset, ending, instruction_count):
+    def __gatherGadgetsByEnding(self, code, arch, fileName, sectionName, offset, ending, instruction_count, dispatcher=None):
         vaddrs = set()
         offset_tmp = 0
         
         tmp_code = code[:]
         to_return = []
+	to_dispatch = []
         match = re.search(ending[0], tmp_code)
 
         while match:
@@ -413,7 +416,14 @@ class Ropper(object):
                 for x in range(0, index+1, arch.align):
                     code_part = tmp_code[index - x:index + ending[1]]
 		    #print offset + offset_tmp - x
-                    gadget, leng = self.__createGadget(arch, code_part, offset + offset_tmp - x , ending, fileName, sectionName)
+		    if dispatcher:
+                        gadget, leng, bak  = self.__createGadget(arch, code_part, offset + offset_tmp - x , ending, fileName, sectionName, 1)#to find Gadget
+			#add
+		        if bak:
+			    to_dispatch.append(bak)
+		        #end
+		    else:
+			gadget, leng = self.__createGadget(arch, code_part, offset + offset_tmp - x , ending, fileName, sectionName)
                     if gadget:
                         if leng > instruction_count:
                             break
@@ -424,12 +434,19 @@ class Ropper(object):
                         none_count += 1
                         if none_count == arch.maxInvalid:
                             break
-
+			
             tmp_code = tmp_code[index+arch.align:]
             offset_tmp += arch.align
 
-            match = re.search(ending[0], tmp_code)   
-        return to_return
+            match = re.search(ending[0], tmp_code) 
+	#add	
+	if dispatcher:
+	    for i in to_dispatch:
+		print i
+	    return to_return, to_dispatch
+	else:
+	#end  
+            return to_return#add 
 
     def __createGadget(self, arch, code_str, codeStartAddress, ending, binary=None, section=None, isDispatcher=0):#add para is Dispatcher
         gadget = Gadget(binary, section, arch)
@@ -438,9 +455,11 @@ class Ropper(object):
         disassembler = self.__getCs(arch)
 
 	#add
-	disassembler.detail = True
-	r_write = []
-	r_read = []
+	if isDispatcher:
+	    disassembler.detail = True
+	    r_write = []
+	    r_read = []
+	    last_inst = Gadget(binary, section, arch)
 	#end
 
         for i in disassembler.disasm(code_str, codeStartAddress):
@@ -448,24 +467,27 @@ class Ropper(object):
                 hasret = True
             
             if hasret or i.mnemonic not in arch.badInstructions:#end with jmp
-
+		
 		#add
-		pattern = r'^(e)?([a-d])[h|l|x]$'
-		r_read = []#last ins read
-		(regs_read, regs_write) = i.regs_access()
-		if len(regs_read) > 0:
-            	    for r in regs_read:
-			if i.reg_name(r) == u'esp':
-			    continue
-			if i.reg_name(r) == u'rsp':
-			    continue
-                	r_read.append(re.sub(pattern, lambda m: 'r' + m.group(2) + 'x', i.reg_name(r)))#fix x86_64
-        	if len(regs_write) > 0:
-            	    for r in regs_write:
+		if isDispatcher:
+		    last_inst = Gadget(binary, section, arch)
+		    pattern = r'^(e)?([a-d])[h|l|x]$'
+		    r_read = []#last ins read
+		    (regs_read, regs_write) = i.regs_access()
+		    if len(regs_read) > 0:
+            	        for r in regs_read:
+			    if i.reg_name(r) == u'esp':
+			        continue
+			    if i.reg_name(r) == u'rsp':
+			        continue
+                	    r_read.append(re.sub(pattern, lambda m: 'r' + m.group(2) + 'x', i.reg_name(r)))#fix x86_64
+        	    if len(regs_write) > 0:
+            	        for r in regs_write:
 			
-                	r_write.append(re.sub(pattern, lambda m: 'r' + m.group(2) + 'x', i.reg_name(r)))#fix x86_64
+                	    r_write.append(re.sub(pattern, lambda m: 'r' + m.group(2) + 'x', i.reg_name(r)))#fix x86_64	
+		    last_inst.append(i.address, i.mnemonic,i.op_str, bytes=i.bytes)	
 		#end
-
+		
                 gadget.append(
                     i.address, i.mnemonic,i.op_str, bytes=i.bytes)
 
@@ -473,22 +495,28 @@ class Ropper(object):
                 break
 
 	#add
-	if len(gadget) >1 and hasret:
-	    for i in r_read:
-		#print i, r_write, gadget
-                if i in r_write:
-		    print "dispather found!: ",
-		    print gadget
+	if isDispatcher:
+	    leng = len(gadget)
+	    if leng>1 and hasret:
+	        for i in r_read:
+		    #print i, r_write, gadget
+                    if i in r_write:
+		        #print "dispather found!: ",last_inst
+		        return gadget, leng, last_inst
+		    else:
+			return gadget, leng, None
+	    else:
+		return None, -1, None	
 	#end
 
 	#modify before jmp
 	
         leng = len(gadget)
         if hasret and leng > 0:
-	    if isDispatcher:#
-		return gadget,leng,r_read,r_write
-	    else:
-                return gadget,leng
+	    #if isDispatcher:#
+		#return gadget,leng,r_read,r_write
+	    #else:
+            return gadget,leng
         return None, -1
 
 
