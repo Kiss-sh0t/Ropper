@@ -268,7 +268,7 @@ class Ropper(object):
         gadgets = []
         for section in binary.executableSections:
             vaddr = binary.imageBase
-	    print section
+	    #print section
             if self.__callback:
                 self.__callback(section, None, 0)
 
@@ -347,6 +347,9 @@ class Ropper(object):
 
         ending_queue = JoinableQueue()
         gadget_queue = Queue()
+	#add
+	dispatch_queue = []
+        #end
         tmp_code = code[:]
 
         process_count = min(cpu_count()+1, len(arch.endings[gtype]))
@@ -357,11 +360,12 @@ class Ropper(object):
             ending_queue.put(None)
 
         for cpu in range(process_count):
-            processes.append(Process(target=self.__gatherGadgetsByEndings, args=(tmp_code, arch, binary.fileName, section.name, section.offset, ending_queue, gadget_queue, instruction_count,1), name="GadgetSearch%d"%cpu))
+            processes.append(Process(target=self.__gatherGadgetsByEndings, args=(tmp_code, arch, binary.fileName, section.name, section.offset, ending_queue, gadget_queue, instruction_count, 1, dispatch_queue), name="GadgetSearch%d"%cpu))
             processes[cpu].daemon=True
             processes[cpu].start()
 
-        
+	print dispatch_queue
+
         count = 0
         ending_count = 0
         if self.__callback:
@@ -370,13 +374,12 @@ class Ropper(object):
             gadgets = gadget_queue.get()
             if gadgets != None:
                 to_return.extend(gadgets)
-
                 ending_count += 1
                 if self.__callback:
                     self.__callback(section, to_return, float(ending_count) / len(arch.endings[gtype]))
         return to_return
 
-    def __gatherGadgetsByEndings(self,code, arch, fileName, sectionName, offset, ending_queue, gadget_queue, instruction_count, dispatcher=None):
+    def __gatherGadgetsByEndings(self,code, arch, fileName, sectionName, offset, ending_queue, gadget_queue, instruction_count, dispatcher=None, dispatch_queue=None):
         
         #try:
         while True:
@@ -385,7 +388,9 @@ class Ropper(object):
                 ending_queue.task_done()
                 break
             if dispatcher:
-                gadgets, bak = self.__gatherGadgetsByEnding(code, arch, fileName, sectionName, offset, ending, instruction_count, dispatcher)#ADD DISPATHCER
+                gadgets, bak = self.__gatherGadgetsByEnding(code, arch, fileName, sectionName, offset, ending, instruction_count, dispatcher)#ADD DISPATHCER	
+		#for i in bak:
+		dispatch_queue.append(bak)
 	    else:
 		gadgets = self.__gatherGadgetsByEnding(code, arch, fileName, sectionName, offset, ending, instruction_count)#origin
             gadget_queue.put(gadgets)
@@ -441,8 +446,6 @@ class Ropper(object):
             match = re.search(ending[0], tmp_code) 
 	#add	
 	if dispatcher:
-	    for i in to_dispatch:
-		print i
 	    return to_return, to_dispatch
 	else:
 	#end  
